@@ -5,6 +5,16 @@ set -o pipefail
 color_idx=1
 COLOR_ARRAY=('31' '32' '33' '34' '35' '36' '37')
 
+##############################################################################
+# Brief:
+#  usage
+# Globals:
+#  none
+# Arguments:
+#  none
+# Returns:
+#  none
+##############################################################################
 function usage() {
     echo "Usage: runit [-c] [-f procfile|Procfile] [-e envfile|.env]
     Options:
@@ -14,9 +24,104 @@ function usage() {
      -h: help information
     "
 }
-
+##############################################################################
+# Brief:
+#  Validate envfile and procfile
+# Globals:
+#  None
+# Arguments:
+#  $1: file style to verify
+#  $2: file name to verify
+# Returns：
+#  succ: 0
+#  fail: 1
+##############################################################################
 function verify() {
-    :
+    local file_style="$1"
+    local file_name="$2"
+    if [[ ! -f "${file_name}" ]]; then
+        echo "verify procfile not exists"
+        return 1
+    elif [[ "${file_type}" == "" ]];then
+        echo "Missing file type"
+        return 1
+    fi
+    if [[ "${file_type}" == "procfile" ]];then
+      verify_proc "${file_name}"
+    else
+      verify_env "${file_name}"
+    fi
+}
+##############################################################################
+# Brief:
+#  verify the procfile
+# Globals:
+#  none
+# Arguments:
+#  $1 procfile
+# Returns:
+#  succ: 0
+#  fail: 1
+##############################################################################
+function verify_proc() {
+    local proc_file="$1"
+    local ret_code=0
+
+    while read procline; do
+        if echo "${procline}" | grep -qv ":"; then
+            err_print "This command has no ':' "
+            continue
+        fi
+        proc_name="${procline%%:*}"
+        proc_cmd="${procline#*:}"
+        echo "${proc_name}" | grep -q "[^a-zA-Z0-9_]" && err_print "${proc_name} including invalid chars" && ret_code=1
+        echo "${proc_cmd}" | grep  "&$" && err_print "${proc_cmd}program cannot run in the background" && ret_code=1
+    done < <(grep -vE "^[[:space:]]*#" "${proc_file}")
+
+    return ${ret_code}
+}
+##############################################################################
+# Brief:
+#  verify the envfile
+# Globals:
+#  none
+# Agruments:
+#  $1 envfile
+# Returns:
+#  succ: 0
+#  fail: 1
+##############################################################################
+function verify_env() {
+    local env_file="$1"
+    local ret_code=0
+
+    [[ ! -f "${env_file}" ]] && err_print "verify envfile not exists" && return 1
+    while read envline; do
+        if echo "${envline}" | grep -v "="; then
+            err_print "no_equal_mark"
+            continue
+        fi
+        env_name="${envline%%=*}"
+        env_val="${envline#*=}"
+        echo "${env_name}" | grep -q "[^a-zA-Z_]" && err_print "${env_name} including invalid_char" && ret_code=1
+        echo "${env_val}" | grep -qE "[[:space:]]" && err_print "${env_val} value contains space" && ret_code=1
+    done < <(grep -vE "^[[:space:]]*#" "${env_file}" | grep -v "^$")
+
+    return ${ret_code}
+}
+##############################################################################
+# Brief:
+#  echo the error information
+# Globals:
+#  none
+# Arguments:
+#  $1 errinfo
+# Returns:
+#  none
+##############################################################################
+function err_print() {
+    errinfo="$1"
+    echo "${errinfo}"
 }
 
 function log() {
@@ -31,13 +136,26 @@ function log() {
     echo "  ${pid_command}"
     return 0
 }
-
+##############################################################################
+# Brief:
+#  Perform start command and print log on screen
+# Globals:
+#  COLOR_ARRAY
+#  color_idx
+# Arguments:
+#  $1: proc name
+#  $2: proc command
+# Returns：
+#  succ: 0
+#  fail: 1
+##############################################################################
 function run_command() {
     local proc_name="$1"
     local command="$2"
     local proc_pid=$!
     local cur_color="${COLOR_ARRAY[color_idx]}"
-    local cmd_port=$(echo "${command}" | grep '$PORT')
+    local cmd_port=$(echo "${command}" | grep -e "\$PORT")
+
     # set 8080 for default PORT
     if [[ -n "${cmd_port}" ]] && [[ -z "${PORT}" ]];then
         export PORT=8080
@@ -47,19 +165,30 @@ function run_command() {
             log "${proc_name}" "${proc_output}" "${cur_color}"
         done
     ) 2>&1 &
+
     local output="$(eval echo \"${command}\")"
     log "${proc_name}" "${output} start with pid ${proc_pid}" "${cur_color}"
 
     [[ $? -ne 0 ]] && return 1
 
-    if [[ -n "${cmd_port}" ]];then
-        (( PORT=$PORT + 1 ))
-    fi
+    [[ -n "${cmd_port}" ]] && PORT=$((${PORT} + 1))
+
+    (( color_idx ++ ))
 
     return 0
 
 }
-
+##############################################################################
+# Brief:
+#  Load the env_file
+# Globals:
+#  none
+# Arguments:
+#  $1 envfile
+# Returns:
+#  succ: 0
+#  fail: 1
+##############################################################################
 function load_env_file() {
     local envfile="$1"
     local env="${envfile:-./.env}"
@@ -67,7 +196,17 @@ function load_env_file() {
     return 0
 
 }
-
+##############################################################################
+# Brief:
+#  run procfile
+# Globals:
+#  none
+# Arguments:
+#  $1 procfile
+# Returns:
+#  succ:0
+#  fail:1
+##############################################################################
 function run_procfile() {
     local proc_file="$1"
     local procfile=${proc_file:-./Procfile}
@@ -76,6 +215,10 @@ function run_procfile() {
         return 1
     fi
     for proc_line in `cat ${procfile}`; do
+        if echo "${proc_line}" | grep -qv ":"; then
+            err_print "This command has no ':' "
+            continue
+        fi
         local procline=`grep -vE '^[[:space:]]*#|^[[:space:]]*$|^$' "${proc_line}"`
         local name=${procline%%:*}
         local cmd=${procline#*:}
@@ -88,7 +231,16 @@ function run_procfile() {
     return 0
 
 }
-
+##############################################################################
+# Brief:
+#  Main procedure
+# Globals:
+#  procfile encfile
+# Arguments:
+#  none
+# Returns:
+#  none
+##############################################################################
 function main() {
   file_check=false
   # options
