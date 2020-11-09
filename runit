@@ -1,7 +1,18 @@
 #!/bin/bash
 
+set -a
+set -o pipefail
+color_idx=1
+COLOR_ARRAY=('31' '32' '33' '34' '35' '36' '37')
+
 function usage() {
-    :
+    echo "Usage: runit [-c] [-f procfile|Procfile] [-e envfile|.env]
+    Options:
+     -c: Check procfile and envfile
+     -e: Load envfile
+     -f: Run procfile
+     -h: help information
+    "
 }
 
 function verify() {
@@ -9,42 +20,112 @@ function verify() {
 }
 
 function log() {
-    :
+    local pid_name="$1"
+    local pid_command="$2"
+    local color="$3"
+    local cur_time=$(date +%H:%M:%S)
+
+    printf "\E[${color}m${cur_time} %-6s | " "${pid_name}"
+
+    tput sgr0
+    echo "  ${pid_command}"
+    return 0
 }
 
 function run_command() {
-    :
+    local proc_name="$1"
+    local command="$2"
+    local proc_pid=$!
+    local cur_color="${COLOR_ARRAY[color_idx]}"
+    local cmd_port=$(echo "${command}" | grep '$PORT')
+    # set 8080 for default PORT
+    if [[ -n "${cmd_port}" ]] && [[ -z "${PORT}" ]];then
+        export PORT=8080
+    fi
+    bash -c "${command}" > >(
+        while read proc_output; do
+            log "${proc_name}" "${proc_output}" "${cur_color}"
+        done
+    ) 2>&1 &
+    local output="$(eval echo \"${command}\")"
+    log "${proc_name}" "${output} start with pid ${proc_pid}" "${cur_color}"
+
+    [[ $? -ne 0 ]] && return 1
+
+    if [[ -n "${cmd_port}" ]];then
+        (( PORT=$PORT + 1 ))
+    fi
+
+    return 0
+
 }
 
 function load_env_file() {
-    :
+    local envfile="$1"
+    local env="${envfile:-./.env}"
+    source "${env}"
+    return 0
+
 }
 
 function run_procfile() {
-    :
+    local proc_file="$1"
+    local procfile=${proc_file:-./Procfile}
+    if [[ ! -s "${procfile}" ]]; then
+        echo 'This procfile is not exists'
+        return 1
+    fi
+    for proc_line in `cat ${procfile}`; do
+        local procline=`grep -vE '^[[:space:]]*#|^[[:space:]]*$|^$' "${proc_line}"`
+        local name=${procline%%:*}
+        local cmd=${procline#*:}
+        run_command "${name}" "${cmd}"
+        if [[ $? -ne 0 ]];then
+            return 1
+        fi
+    done
+    trap "kill 0" SIGINT SIGTERM
+    return 0
+
 }
 
 function main() {
-  check=0
+  file_check=false
+  # options
   while getops ce:f:h opt; do
       case $opt in
-      c)
-        check=1
-        ;;
-      e)
-        envfile="${OPTARG}"
-        ;;
-      f)
-        procfile="${OPTARG}"
-        ;;
-      h) usage
-         exit 0
-         ;;
-      ?) usage
-         exit 1
-         ;;
+      c) file_check=true ;;
+      e) envfile="${OPTARG}" ;;
+      f) procfile="${OPTARG}" ;;
+      *) usage ;;
       esac
   done
+
+  # load envfile
+  env="${envfile:-./.env}"
+  load_env_file "${envfile}"
+  if [[ $? -ne 0 ]]; then
+      exit 1
+  fi
+
+  # verify procfile and envfile
+  if ${file_check}; then
+      verify procfile "${procfile}"
+      if [[ $? -ne 0 ]]; then
+          exit 1
+      fi
+      verify envfile "${env}"
+      if [[ $? -ne 0 ]]; then
+          exit 1
+      fi
+      exit 0
+  fi
+
+  # run procfile
+  run_procfile "${procfile}"
+  if [[ $? -ne 0 ]]; then
+      exit 1
+  fi
 
 }
 
