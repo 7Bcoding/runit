@@ -119,7 +119,19 @@ function err_print() {
   errinfo="$1"
   echo "${errinfo}"
 }
-
+##############################################################################
+# Brief:
+#  Print logs of processs
+# Globals:
+#  None
+# Arguments:
+#  $1: proc name to be started
+#  $2: output of proc during starting or after started
+#  $3: color of logs
+# Returns：
+#  succ: 0
+#  fail: 1
+##############################################################################
 function log() {
   local name="$1"
   local command="$2"
