@@ -18,6 +18,7 @@
 # Returns:
 #   succ:0
 #   fail:1
+
 set -a
 set -o pipefail
 PORT=8080
@@ -60,7 +61,7 @@ function usage() {
 ##############################################################################
 function verify_proc() {
     local proc_file="$1"
-    local ret_code=0
+    local retcode=0
 
     [[ ! -f "${proc_file}" ]] && err_print "verify procfile not exists" && return 1
 
@@ -71,9 +72,9 @@ function verify_proc() {
         fi
         proc_name="${line%%:*}"
         proc_value="${line#*:}"
-        echo "${proc_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && ret_code=1
+        echo "${proc_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && retcode=1
     done < <(grep -vE "^[[:space:]]*#" "${proc_file}")
-    return ${ret_code}
+    return ${retcode}
 }
 ##############################################################################
 # Brief:
@@ -88,7 +89,7 @@ function verify_proc() {
 ##############################################################################
 function verify_env() {
     local env_file="$1"
-    local ret_code=0
+    local retcode=0
 
     [[ ! -f "${env_file}" ]] && err_print "verify envfile not exists" && return 1
     while read line; do
@@ -98,10 +99,10 @@ function verify_env() {
         fi
         env_name="${line%%=*}"
         env_value="${line#*=}"
-        echo "${env_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && ret_code=1
-        echo "${env_value}" | grep -qE "[[:space:]]" && err_print "value_have_space" && ret_code=1
+        echo "${env_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && retcode=1
+        echo "${env_value}" | grep -qE "[[:space:]]" && err_print "value_have_space" && retcode=1
     done < <(grep -vE "^[[:space:]]*#" "${env_file}" | grep -v "^$")
-    return ${ret_code}
+    return ${retcode}
 }
 ##############################################################################
 # Brief:
@@ -241,8 +242,8 @@ function main() {
   if ${check}; then
     if [[ -n "${procfile}" ]]; then
       verify_proc "${procfile}"
-      proc_ret_code=$?
-      [[ ${proc_ret_code} -ne 0 ]] && exit 1
+      proc_retcode=$?
+      [[ ${proc_retcode} -ne 0 ]] && exit 1
     else
       err_print "The procfile is null"
       exit 1
@@ -252,8 +253,8 @@ function main() {
       envfile="./.env"
     fi
     verify_env "${envfile}"
-    env_ret_code=$?
-    [[ ${env_ret_code} -ne 0 ]] && exit 1
+    env_retcode=$?
+    [[ ${env_retcode} -ne 0 ]] && exit 1
 
   else
     if [[ -z "${envfile}" ]]; then
@@ -261,16 +262,16 @@ function main() {
     fi
 
     load_env_file "${envfile}"
-    load_env_ret_code=$?
-    [[ ${load_env_ret_code} -ne 0 ]] && exit 1
+    env_retcode=$?
+    [[ ${env_retcode} -ne 0 ]] && exit 1
 
     if [[ -z "${procfile}" ]]; then
       procfile="./Procfile"
     fi
 
     run_procfile "${procfile}"
-    run_ret_code=$?
-    [[ run_ret_code -ne 0 ]] && exit 1
+    proc_retcode=$?
+    [[ proc_retcode -ne 0 ]] && exit 1
   fi
   exit 0
 }
