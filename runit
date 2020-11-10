@@ -64,13 +64,13 @@ function verify_proc() {
 
     [[ ! -f "${proc_file}" ]] && err_print "verify procfile not exists" && return 1
 
-    while read nextline ; do
-        if echo "${nextline}" | grep -v ":"; then
+    while read line ; do
+        if echo "${line}" | grep -v ":"; then
             err_print "no_colon_command"
             continue
         fi
-        proc_name="${nextline%%:*}"
-        proc_value="${nextline#*:}"
+        proc_name="${line%%:*}"
+        proc_value="${line#*:}"
         echo "${proc_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && ret_code=1
     done < <(grep -vE "^[[:space:]]*#" "${proc_file}")
     return ${ret_code}
@@ -91,13 +91,13 @@ function verify_env() {
     local ret_code=0
 
     [[ ! -f "${env_file}" ]] && err_print "verify envfile not exists" && return 1
-    while read nextline; do
-        if echo "${nextline}" | grep -v "="; then
+    while read line; do
+        if echo "${line}" | grep -v "="; then
             err_print "no_equal_mark"
             continue
         fi
-        env_name="${nextline%%=*}"
-        env_value="${nextline#*=}"
+        env_name="${line%%=*}"
+        env_value="${line#*=}"
         echo "${env_name}" | grep -q "[^a-zA-Z_]" && err_print "invalid_char" && ret_code=1
         echo "${env_value}" | grep -qE "[[:space:]]" && err_print "value_have_space" && ret_code=1
     done < <(grep -vE "^[[:space:]]*#" "${env_file}" | grep -v "^$")
@@ -123,9 +123,8 @@ function log() {
   local command="$2"
   local color="$3"
   time=$(date +%H:%M:%s)
-
   printf "\E[${color}m${time} %-7s] | " "${name}"
-
+  # clear all set colors
   tput sgr0
   echo "${command}"
   return 0
@@ -146,10 +145,11 @@ function log() {
 function run_command() {
     local proc_name="$1"
     local command="$2"
+    # get proc pid
     local cmd_pid=$!
     local cur_color="${COLOR_ARRAY[$color_idx]}"
     local cmd_port=$(echo "${command}" | grep -e "\$PORT")
-
+   # set 8080 for default PORT
     [[ -n "${cmd_port}" ]] && [[ -z "${PORT}" ]] && PORT=8080
     bash -c "${command}" > >(
         while read output; do
@@ -160,7 +160,9 @@ function run_command() {
     local output="$(eval echo \"${command}\")"
     log "${proc_name}" "${output} start with pid ${cmd_pid}" "${cur_color}"
     [[ $? -ne 0 ]] && return 1
+    # PORT increases when it was used
     [[ -n "${cmd_port}" ]] && PORT=$((${PORT} + 1))
+    # Color increases
     (( color_idx ++ ))
 
     return 0
@@ -179,6 +181,7 @@ function run_command() {
 function load_env_file() {
   set -a
   local env_file="$1"
+  # if envfile is null，load .env from current directory
   for env in $(echo "${env_file}"); do
     [[ -f "${env}" ]] && source "${env}"
   done
@@ -186,7 +189,7 @@ function load_env_file() {
 }
 ##############################################################################
 # Brief:
-#  run procfile
+#  Run process from Profile, Ctrl + C terminates all processes
 # Globals:
 #  none
 # Arguments:
@@ -197,19 +200,21 @@ function load_env_file() {
 ##############################################################################
 
 function run_procfile() {
-    local proc_file="$1"
-    [[ ! -f "${proc_file}" ]] && err_print "this procfile is not exists" && return 1
-    while read line; do
-        if echo "${line}" | grep -qv ":"; then
-            err_print "no_colon_command"
-            continue
-        fi
-        local name="${line%%:*}"
-        local cmd="${line#*:}"
-        [[ -n "${name}" ]] && [[ -n "${cmd}" ]] && run_command "${name}" "${cmd}"
+    local procfile="$1"
+    # if procfile is null,use default in current directory
+    local proc=${procfile:-./Procfile}
+    if [[ ! -s "${proc}" ]];then
+        err_print "This procfile is not exists"
+        return 1
+    fi
+    while read line;do
+        local proc_name=${line%%:*}
+        local command=${line#*:}
+        local proc_cmd=$(echo $command)
+        run_command "${proc_name}" "${proc_cmd}"
         [[ $? -ne 0 ]] && return 1
-    done < <(grep "" "${proc_file}" | grep -vE "[[:space:]]*#" | grep -v "^$" )
-    wait
+    done < <(grep -vE '^[[:space:]]*#|^[[:space:]]*$|^$' "${proc}")
+    trap "kill 0" SIGINT SIGTERM
     return 0
 }
 ##############################################################################
@@ -271,4 +276,5 @@ function main() {
 }
 
 main "$@"
+wait
 
