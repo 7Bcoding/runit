@@ -38,6 +38,7 @@ envfile=""
 # Returns:
 #  none
 ##############################################################################
+
 function usage() {
   echo "Usage: runit [-c] [-f procfile|Procfile] [-e envfile|.env]
     Options:
